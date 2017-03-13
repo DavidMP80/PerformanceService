@@ -1,33 +1,73 @@
-﻿var express = require('express'),
+﻿let express = require('express'),
     ping = require('ping');
 
-var routes = function() {
+let redis = require('redis');
+// var client = redis.createClient(6379, '127.0.0.1');
+let client = redis.createClient();
 
-    var performanceRouter = express.Router();
+client.on('connect', function() {
+    console.log('connected');
+});
+
+function getCurrentTimestamp(){
+    return Math.floor(Date.now());
+}
+
+let routes = function() {
+
+    let performanceRouter = express.Router();
 
     function doPing(responseModel, callback) {
+        // store current timestamp in Redis
+        client.get(responseModel.url, function(error, requestTimestamp){
+            if (error) {
+                throw error;
+            }
 
-        var host = responseModel.url;
-        var reps = responseModel.repetitions;
+            if (!requestTimestamp){
+                client.setex(responseModel.url,  10, getCurrentTimestamp())
+            }
+        });
+
+        let host = responseModel.url;
+        let reps = responseModel.repetitions;
         
-        for (var i = 0; i < reps; i++) {
-            
+        for (let i = 0; i < reps; i++) {
             ping.promise.probe(host)
-                .then(function (res) {
+                .then(function () {
+                    // Save current timestamp in response responseTimestamp variable
+                    let responseTimestamp = getCurrentTimestamp();
 
-                    responseModel.times.push(res.time);
-                    
-                    if (responseModel.times.length == reps) {
-                        callback(responseModel);
-                    }
+                    // Get request timestamp using Redis
+                    client.get(responseModel.url, function(error, requestTimestamp){
+                        if (error) {
+                            throw error;
+                        }
+
+                        if (requestTimestamp){
+                            // Parse request timestamp
+                            let requestTimestampInt = Number(requestTimestamp);
+
+                            // Calculate response time
+                            let result = responseTimestamp - requestTimestampInt;
+
+                            // Push ping response time in response
+                            responseModel.times.push(result);
+
+                            if (responseModel.times.length == reps) {
+                                callback(responseModel);
+                                client.del(responseModel.url);
+                            }
+                        }
+                    });
                 })
-        };        
+        }
     }
 
     performanceRouter.route('/')
         .post(function (req, res) {
-            
-            var responseModel = {
+
+            let responseModel = {
                 url: req.body.url,
                 repetitions: req.body.repetition,
                 times: []
