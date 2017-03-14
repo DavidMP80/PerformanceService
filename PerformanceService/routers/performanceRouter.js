@@ -1,11 +1,15 @@
 ﻿let express = require('express'),
     ping = require('ping');
 
+let mongoose = require('mongoose');
+let ResponseModel = require('../models/response_model');
+mongoose.connect('mongodb://localhost/responses');
+
 let redis = require('redis');
 // var client = redis.createClient(6379, '127.0.0.1');
-let client = redis.createClient();
+let redisClient = redis.createClient();
 
-client.on('connect', function() {
+redisClient.on('connect', function() {
     console.log('connected');
 });
 
@@ -19,13 +23,13 @@ let routes = function() {
 
     function doPing(responseModel, callback) {
         // store current timestamp in Redis
-        client.get(responseModel.url, function(error, requestTimestamp){
+        redisClient.get(responseModel.url, function(error, requestTimestamp){
             if (error) {
                 throw error;
             }
 
             if (!requestTimestamp){
-                client.setex(responseModel.url,  10, getCurrentTimestamp())
+                redisClient.setex(responseModel.url,  10, getCurrentTimestamp())
             }
         });
 
@@ -39,7 +43,7 @@ let routes = function() {
                     let responseTimestamp = getCurrentTimestamp();
 
                     // Get request timestamp using Redis
-                    client.get(responseModel.url, function(error, requestTimestamp){
+                    redisClient.get(responseModel.url, function(error, requestTimestamp){
                         if (error) {
                             throw error;
                         }
@@ -56,7 +60,7 @@ let routes = function() {
 
                             if (responseModel.times.length == reps) {
                                 callback(responseModel);
-                                client.del(responseModel.url);
+                                redisClient.del(responseModel.url);
                             }
                         }
                     });
@@ -64,24 +68,70 @@ let routes = function() {
         }
     }
 
+    /* Send response */
     performanceRouter.route('/')
         .post(function (req, res) {
+            // Create response model from POST
+            let responseModel = new ResponseModel();
+            responseModel.id = req.body.id;
+            responseModel.name = req.body.name;
+            responseModel.url = req.body.url;
+            responseModel.repetitions = req.body.repetitions;
+            responseModel.times = [];
 
-            let responseModel = {
-                url: req.body.url,
-                repetitions: req.body.repetition,
-                times: []
-            };
-            
+            // Ping hosts
             doPing(responseModel, function (response) {
-                
-                res.send(response.times);                
 
-            });            
+                // Add host response times in the response model
+                responseModel.times= response.times;
+
+                // Save the response model to MongoDB
+                let promise = responseModel.save();
+                promise.then(function (response) {
+                    // Send back results
+                    res.send(response.times);
+                });
+            });
         })
         .get(function (req, res) {
             res.send('retorn');
         });
+
+    /* Get all responses */
+    performanceRouter.get('/responses', function (req, res) {
+        ResponseModel.find(function(err, responses) {
+            if (err) {
+                res.json({info: 'error during find responses', error: err});
+            }
+            setTimeout(function(){
+                res.json({info: 'responses found successfully', data: responses});
+            }, 10000);
+        });
+    });
+
+    /* Get response by id */
+    performanceRouter.get('/responses/:id', function (req, res) {
+        ResponseModel.findById(req.params.id, function(err, response) {
+            if (err) {
+                res.json({info: 'error during find response', error: err});
+            }
+            if (response) {
+                res.json({info: 'response found successfully', data: response});
+            } else {
+                res.json({info: 'response not found'});
+            }
+        });
+    });
+
+    /* Delete response by id*/
+    performanceRouter.delete('/responses/:id', function (req, res) {
+        ResponseModel.findByIdAndRemove(req.params.id, function(err) {
+            if (err) {
+                res.json({info: 'error during remove response', error: err});
+            }
+            res.json({info: 'response removed successfully'});
+        });
+    });
 
     return performanceRouter;
 };
