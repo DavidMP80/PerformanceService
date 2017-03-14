@@ -92,9 +92,6 @@ let routes = function() {
                     res.send(response.times);
                 });
             });
-        })
-        .get(function (req, res) {
-            res.send('retorn');
         });
 
     /* Get all responses */
