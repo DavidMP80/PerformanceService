@@ -6,7 +6,7 @@ let ResponseModel = require('../models/response_model');
 mongoose.connect('mongodb://localhost/responses');
 
 let redis = require('redis');
-// var client = redis.createClient(6379, '127.0.0.1');
+// let client = redis.createClient(6379, '127.0.0.1');
 let redisClient = redis.createClient();
 
 redisClient.on('connect', function() {
@@ -35,36 +35,36 @@ let routes = function() {
 
         let host = responseModel.url;
         let reps = responseModel.repetitions;
-        
+
         for (let i = 0; i < reps; i++) {
             ping.promise.probe(host)
-                .then(function () {
-                    // Save current timestamp in response responseTimestamp variable
-                    let responseTimestamp = getCurrentTimestamp();
+            .then(function () {
+                // Save current timestamp in response responseTimestamp variable
+                let responseTimestamp = getCurrentTimestamp();
 
-                    // Get request timestamp using Redis
-                    redisClient.get(responseModel.url, function(error, requestTimestamp){
-                        if (error) {
-                            throw error;
+                // Get request timestamp using Redis
+                redisClient.get(responseModel.url, function(error, requestTimestamp){
+                    if (error) {
+                        throw error;
+                    }
+
+                    if (requestTimestamp){
+                        // Parse request timestamp
+                        let requestTimestampInt = Number(requestTimestamp);
+
+                        // Calculate response time
+                        let result = responseTimestamp - requestTimestampInt;
+
+                        // Push ping response time in response
+                        responseModel.times.push(result);
+
+                        if (responseModel.times.length == reps) {
+                            callback(responseModel);
+                            redisClient.del(responseModel.url);
                         }
-
-                        if (requestTimestamp){
-                            // Parse request timestamp
-                            let requestTimestampInt = Number(requestTimestamp);
-
-                            // Calculate response time
-                            let result = responseTimestamp - requestTimestampInt;
-
-                            // Push ping response time in response
-                            responseModel.times.push(result);
-
-                            if (responseModel.times.length == reps) {
-                                callback(responseModel);
-                                redisClient.del(responseModel.url);
-                            }
-                        }
-                    });
-                })
+                    }
+                });
+            })
         }
     }
 
@@ -76,25 +76,20 @@ let routes = function() {
             responseModel.id = req.body.id;
             responseModel.name = req.body.name;
             responseModel.url = req.body.url;
-            responseModel.repetitions = req.body.repetitions;
+            responseModel.repetitions = req.body.repetition;
             responseModel.times = [];
 
             // Ping hosts
             doPing(responseModel, function (response) {
-
                 // Add host response times in the response model
                 responseModel.times= response.times;
-
                 // Save the response model to MongoDB
                 let promise = responseModel.save();
                 promise.then(function (response) {
                     // Send back results
-                    res.send(response.times);
+                    res.json(response);
                 });
             });
-        })
-        .get(function (req, res) {
-            res.send('retorn');
         });
 
     /* Get all responses */
