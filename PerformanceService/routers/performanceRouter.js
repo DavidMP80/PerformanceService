@@ -5,6 +5,8 @@ let mongoose = require('mongoose');
 let ResponseModel = require('../models/response_model');
 mongoose.connect('mongodb://localhost/responses');
 
+let controller = require('../controllers/performanceController');
+
 let redis = require('redis');
 // let client = redis.createClient(6379, '127.0.0.1');
 let redisClient = redis.createClient();
@@ -13,60 +15,10 @@ redisClient.on('connect', function() {
     console.log('connected');
 });
 
-function getCurrentTimestamp(){
-    return Math.floor(Date.now());
-}
-
 let routes = function() {
 
     let performanceRouter = express.Router();
-
-    function doPing(responseModel, callback) {
-        // store current timestamp in Redis
-        redisClient.get(responseModel.url, function(error, requestTimestamp){
-            if (error) {
-                throw error;
-            }
-
-            if (!requestTimestamp){
-                redisClient.setex(responseModel.url,  10, getCurrentTimestamp())
-            }
-        });
-
-        let host = responseModel.url;
-        let reps = responseModel.repetitions;
-
-        for (let i = 0; i < reps; i++) {
-            ping.promise.probe(host)
-            .then(function () {
-                // Save current timestamp in response responseTimestamp variable
-                let responseTimestamp = getCurrentTimestamp();
-
-                // Get request timestamp using Redis
-                redisClient.get(responseModel.url, function(error, requestTimestamp){
-                    if (error) {
-                        throw error;
-                    }
-
-                    if (requestTimestamp){
-                        // Parse request timestamp
-                        let requestTimestampInt = Number(requestTimestamp);
-
-                        // Calculate response time
-                        let result = responseTimestamp - requestTimestampInt;
-
-                        // Push ping response time in response
-                        responseModel.times.push(result);
-
-                        if (responseModel.times.length == reps) {
-                            callback(responseModel);
-                            redisClient.del(responseModel.url);
-                        }
-                    }
-                });
-            })
-        }
-    }
+    controller = new controller(redisClient);
 
     /* Send response */
     performanceRouter.route('/')
@@ -79,17 +31,19 @@ let routes = function() {
             responseModel.repetitions = req.body.repetition;
             responseModel.times = [];
 
-            // Ping hosts
-            doPing(responseModel, function (response) {
+            controller.doPing(responseModel, function (response) {
                 // Add host response times in the response model
                 responseModel.times= response.times;
+
                 // Save the response model to MongoDB
                 let promise = responseModel.save();
+
                 promise.then(function (response) {
                     // Send back results
                     res.json(response);
                 });
             });
+
         });
 
     /* Get all responses */
@@ -98,6 +52,7 @@ let routes = function() {
             if (err) {
                 res.json({info: 'error during find responses', error: err});
             }
+            
             setTimeout(function(){
                 res.json({info: 'responses found successfully', data: responses});
             }, 10000);
@@ -131,4 +86,5 @@ let routes = function() {
     return performanceRouter;
 };
 
+// Exports getCurrentTimestamp for unit testing purposes
 module.exports = routes;

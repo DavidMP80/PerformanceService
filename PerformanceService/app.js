@@ -13,7 +13,7 @@ app.use(function(req, res, next) {
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-var performanceRouter = require('./routers/performanceRouter')();
+let performanceRouter = require('./routers/performanceRouter')();
 app.use('/api/performance', performanceRouter);
 
 app.listen(port, function () {
