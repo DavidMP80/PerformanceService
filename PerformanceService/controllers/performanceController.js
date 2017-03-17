@@ -53,8 +53,6 @@ var PerformanceController = class{
                         // Push ping response time in response
                         responseModel.times.push(result);
 
-                        console.log('doPing 2: ' + responseModel.times.length);
-
                         if (responseModel.times.length == reps) {
 
                             callback(responseModel);
